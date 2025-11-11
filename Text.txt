@@ -1,0 +1,42 @@
+---
+# tasks/main.yml inside role "restart_service"
+
+- name: Check if service is running
+  win_shell: "(Get-Service -Name '{{ service_name }}').Status"
+  register: service_status
+
+- name: Build service record
+  set_fact:
+    service_record:
+      host: "{{ inventory_hostname }}"
+      service_name: "{{ service_name }}"
+      status: "{{ service_status.stdout }}"
+
+- name: Add result to global list on localhost
+  set_fact:
+    collected_results: "{{ collected_results | default([]) + [service_record] }}"
+  delegate_to: localhost
+  run_once: false
+
+- name: Write final JSON output (once all hosts finish)
+  copy:
+    dest: "service_status_output.json"
+    content: "{{ collected_results | to_json }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: Read service_status_output.json
+  slurp:
+    src: "service_status_output.json"
+  register: json_data
+  delegate_to: localhost
+  run_once: true
+
+- name: Generate HTML report from collected statuses
+  template:
+    src: "template.html.j2"
+    dest: "service_status_report.html"
+  vars:
+    service_statuses: "{{ json_data.content | b64decode | from_json }}"
+  delegate_to: localhost
+  run_once: true
