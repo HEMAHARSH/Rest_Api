@@ -1,38 +1,44 @@
 ---
-# tasks/main.yml inside role "restart_service"
-
 - name: Check if service is running
   win_shell: "(Get-Service -Name '{{ service_name }}').Status"
   register: service_status
 
-- name: Build service record
+- name: Create one record per host
   set_fact:
     service_record:
       host: "{{ inventory_hostname }}"
       service_name: "{{ service_name }}"
       status: "{{ service_status.stdout }}"
 
-- name: Add result to global list on localhost
-  set_fact:
-    collected_results: "{{ collected_results | default([]) + [service_record] }}"
+# Append record to a temporary JSON-lines file in Jenkins workspace
+- name: Append service result (each host adds one line)
+  lineinfile:
+    path: "service_status_temp.jsonl"
+    line: "{{ service_record | to_json }}"
+    create: yes
   delegate_to: localhost
-  run_once: false
 
-- name: Write final JSON output (once all hosts finish)
-  copy:
-    dest: "service_status_output.json"
-    content: "{{ collected_results | to_json }}"
+# After all hosts finish → convert JSONL to valid JSON array
+- name: Build final JSON file
+  shell: |
+    echo "[" > service_status_output.json
+    sed -e '$!s/$/,/' service_status_temp.jsonl >> service_status_output.json
+    echo "]" >> service_status_output.json
+  args:
+    executable: /bin/bash
   delegate_to: localhost
   run_once: true
 
-- name: Read service_status_output.json
+# Read the JSON into Ansible
+- name: Read final JSON
   slurp:
     src: "service_status_output.json"
   register: json_data
   delegate_to: localhost
   run_once: true
 
-- name: Generate HTML report from collected statuses
+# Build HTML report in workspace
+- name: Generate HTML report
   template:
     src: "template.html.j2"
     dest: "service_status_report.html"
