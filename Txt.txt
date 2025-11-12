@@ -1,8 +1,76 @@
-Mr. Bondu Raj Kumar comes from a humble family. His father is a farmer and his mother is a homemaker. He has an elder sister who is married and a younger brother who is studying in the 9th class. Despite financial limitations, his parents always prioritized his education. Throughout his graduation, he faced economic challenges, yet stayed focused and successfully completed his B.Tech. These experiences have shaped him into a hardworking, sincere, and determined individual who values every opportunity.
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Picasso Health Check - {{ env }}</title>
+    <style>
+        table { border-collapse: collapse; width: 50%; font-family: Arial; }
+        th, td { border: 1px solid #444; padding: 6px; text-align: left; }
+        th { background: #eee; }
+        .ACTIVE { background: #c8f7c5; }
+        .FAILED { background: #f7c5c5; }
+    </style>
+</head>
+<body>
+
+<h3>Picasso Health Check Report - {{ env }}</h3>
+
+<table>
+    <tr>
+        <th>Application</th>
+        <th>Status</th>
+    </tr>
+    {% for key, value in json_data.items() %}
+    {% set clean = value.replace('STATE_','') %}
+    <tr>
+        <td>{{ key }}</td>
+        <td class="{{ clean }}">{{ clean }}</td>
+    </tr>
+    {% endfor %}
+</table>
+
+</body>
+</html>
+
 
 
 ---
+# Generate WLST Health Check script
+- name: Generate WLST Health check script
+  template:
+    src: "roles/PICASSO/HealthCheck_json.py.j2"
+    dest: "{{ deploy_path }}\\HealthCheck_picasso.py"
 
-✅ Referral Note – Bondu Raj Kumar (First-Generation Graduate)
+# Execute WLST script on Windows server
+- name: Execute Health check script using WLST
+  win_command: >
+    {{ win_work_drive }}:\\apps\\wls\\12.2.1.4.0\\wlserver\\server\\bin\\setWLSEnv.cmd &&
+    {{ win_work_drive }}:\\apps\\java\\{{ jdk_version }}\\bin\\java
+    -Dweblogic.ssl.JSSEEnabled=true
+    -Dweblogic.security.SSL.enableJSSE=true
+    -Dweblogic.security.SSL.ignoreHostnameVerification=true
+    -Dweblogic.security.TrustKeyStore=CustomTrust
+    -Dweblogic.security.CustomTrustKeyStoreFileName={{ deploy_path }}
+    -Dweblogic.security.CustomTrustKeyStorePassPhrase=changeit
+    -Dweblogic.security.CustomTrustKeyStoreType=JKS
+    weblogic.WLST {{ deploy_path }}\\HealthCheck_picasso.py
 
-Mr. Bondu Raj Kumar is the first graduate in his family. Although his parents are not formally educated, they strongly believe in the power of education and have always supported him. As a first-generation learner, he handled academic responsibilities on his own and remained committed despite financial and personal challenges. Completing his B.Tech was a proud moment for his family and an inspiration to his elder sister, younger brother, and others in his village. His journey reflects determination, discipline, and a strong desire to create a better future through education.
+# Fetch JSON output to playbook directory
+- name: Fetch the health_check_output.json
+  fetch:
+    src: "{{ deploy_path }}\\health_check_output.json"
+    dest: "{{ playbook_dir }}/health_check_output.json"
+    flat: yes
+
+# Load JSON into variable
+- name: Read JSON file into variable
+  set_fact:
+    json_data: "{{ lookup('file', playbook_dir + '/health_check_output.json') | from_json }}"
+
+# Generate HTML report from template
+- name: Create HTML report from JSON
+  template:
+    src: "{{ playbook_dir }}/template.html.j2"
+    dest: "{{ playbook_dir }}/report.html"
+  vars:
+    env: "{{ env }}"
+    json_data: "{{ json_data }}"
